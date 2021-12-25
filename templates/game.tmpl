@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<script src="https://code.jquery.com/jquery-3.6.0.slim.min.js"></script>
+	</head>
+	<body>
+ 		<h3> username: {{ .username }} </h3>
+ 		<h3> gameid: {{ .gameid }} </h3>
+		<div id="game"
+				 username={{ .username }}
+				 token={{ .player }}
+				 gameid={{ .gameid }}
+				 > </div>
+
+		
+		<div style="display: flex">
+			<div id="board0"></div>
+			<div id="board1"></div>
+		</div>
+	</body>
+	<style>
+		.winner {
+				background-color: blue;
+		}
+		.loser {
+				background-color: red;
+		}
+	</style>
+	<script src="main.js"></script>
+</html>

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"net/http"
 	"net/url"
 	"encoding/json"
@@ -20,7 +21,7 @@ var wsu = websocket.Upgrader {
 			return r.Host == "localhost:3000" ||
 				r.Host == "localhost:8080"
 		},
-	}
+}
 
 type Move struct {
 	X int `json:"x" binding:"required"`
@@ -28,14 +29,17 @@ type Move struct {
 	T string `json:"t" binding:"required"`
 }
 
-type MoveResponse struct {
-	Type string `json:"type" binding:"required"`
-	Status string `json:"status" binding:"required"`
-	Move Move `json:"move"`
+type Game struct {
+	IsDone bool `json:"isDone" binding:"required"`
+	IsReady bool `json:"isReady" binding:"required"`
+	Winner string `json:"winner" binding:"required"`
+	Turn string `json:"turn" binding:"required"`
+	Players []string `json:"players" binding:"required"`
+	Board [][]string `json:"board" binding:"required"`
 }
 
 type PlayerEvent struct {
-	Type string `"default: "player" json:"type" binding:"required"`
+	Type string `"json:"type" binding:"required"`
 	Event string `json:"event" binding:"required"`
 	Content string `json:"content" binding:"required"`
 }
@@ -50,13 +54,6 @@ type MoveEvent struct {
 	Type string `json:"type" binding:"required" default:"move"`
 	Event string `json:"event" binding:"required"`
 	Content Move `json:"content" binding:"required"`
-}
-
-type Game struct {
-	IsDone bool `json:"isDone" binding:"required"`
-	Winner string `json:"winner" binding:"required"`
-	Players []string `json:"players" binding:"required"`
-	Board [][]string `json:"board" binding:"required"`
 }
 
 var GameStore = map[string] Game {}
@@ -75,8 +72,8 @@ func (h *myHandler) HandleMessage (m *nsq.Message) error {
 }
 
 func checkWin (id string) bool {
-	var board = GameStore[id].Board
-	var winner = false
+	board := GameStore[id].Board
+	winner := false
 	for i := 0; i < 3; i++ {
 		if (board[i][0] != " " &&
 			board[i][0] == board[i][1] &&
@@ -93,12 +90,34 @@ func checkWin (id string) bool {
 	return winner
 }
 
-func doMove (id, t string, x,y int) string {
-	if GameStore[id].Board[y][x] == " " {
-		GameStore[id].Board[y][x] = t;
+func doMove (game *Game, x,y int, t string) string {
+	// not player's turn
+	if game.Turn != t {
+		return "turn"
+	}
+	// cycle between players
+	if game.Turn == game.Players[0] {
+		game.Turn = game.Players[1]
+	} else {
+		game.Turn = game.Players[0]
+	}
+	// place player's piece
+	if game.Board[y][x] == " " {
+		game.Board[y][x] = t;
 		return "ok"		
 	}
 	return "taken"
+}
+
+func newGame () Game {
+	var nGame = Game {
+		Board: [][]string {
+			{" ", " ", " "},
+				{" ", " ", " "},
+				{" ", " ", " "},
+			},
+		}
+	return nGame
 }
 
 func main() {
@@ -125,16 +144,8 @@ func main() {
 		if val, ok := GameStore[gameid]; ok {
 			c.JSON(200, val)
 		} else {
-			fmt.Println("creating new game board")
-			
-			var nGame = Game{Board: [][]string{
-				{" ", " ", " "},	
-				{" ", " ", " "},	
-				{" ", " ", " "},	
-			}}
-						
+			nGame := newGame()
 			GameStore[gameid] = nGame
-			
 			c.JSON(200, nGame)
 		}
 	})
@@ -190,7 +201,32 @@ func main() {
 			Content: player,
 		})
 		producer.Publish(gameid, s0)
+
+		if _, ok := GameStore[gameid]; !ok {
+			GameStore[gameid] = newGame()
+		}
 		
+		g := GameStore[gameid]
+		if g.Players == nil || len(g.Players) < 2 {
+			// search for player in array
+			p := sort.Search(len(g.Players), func(i int) bool {
+				return g.Players[i] == player
+			})
+
+			if g.Players == nil || p == len(g.Players) {
+				// add new player
+				g.Players = append(g.Players, player)
+			}
+
+			if len(g.Players) == 2 {
+				// set who goes first
+				g.IsReady = true
+				g.Turn = g.Players[0]
+			}
+			// commit new game state			
+			GameStore[gameid] = g
+		}
+
 		for {
 			var jsonM Move	
 			err := conn.ReadJSON(&jsonM)
@@ -200,43 +236,42 @@ func main() {
 				break
 			}
 
-			fmt.Println(jsonM)
-
-			var status string
-			if !GameStore[gameid].IsDone {
-				status = doMove(gameid, jsonM.T, jsonM.X, jsonM.Y)
-			} else {
-				status = "done"
-			}
-
-			var g = GameStore[gameid]
-			GameStore[gameid] = Game{
-				Players: g.Players,
-				Board: g.Board,
-				IsDone: checkWin(gameid),
-				Winner: jsonM.T,
-			}
-
-			jsonR := MoveEvent{
-				Type: "move",
-				Event: "move",
-				Content: jsonM,
-			}
-			s, _ := json.Marshal(jsonR)
-			producer.Publish(gameid, s)
-
-			if status == "ok" && GameStore[gameid].IsDone {
-				jsonR := GameEvent{
-					Type: "game",
-					Event: "over",
-					Content: jsonM.T,
+			game := GameStore[gameid]
+			if game.IsReady {
+				var status string
+				if !GameStore[gameid].IsDone {
+					status = doMove(&game, jsonM.X, jsonM.Y, jsonM.T)
+				} else {
+					status = "done"
 				}
-				s, _ := json.Marshal(jsonR)				
-				producer.Publish(gameid, s)
-			}
 
-			fmt.Println("gameid:", gameid)
-			fmt.Println("string:", string(s))
+				fmt.Println("STATUS", status)
+
+				if status != "turn" {
+					game.IsDone = checkWin(gameid)
+					GameStore[gameid] = game
+
+					jsonR := MoveEvent{
+						Type: "move",
+						Event: "move",
+						Content: jsonM,
+					}
+					s, _ := json.Marshal(jsonR)
+					producer.Publish(gameid, s)
+
+					if status == "ok" && GameStore[gameid].IsDone {
+						jsonR := GameEvent{
+							Type: "game",
+							Event: "over",
+							Content: jsonM.T,
+						}
+						s, _ := json.Marshal(jsonR)				
+						producer.Publish(gameid, s)
+					}
+					fmt.Println("gameid:", gameid)
+					fmt.Println("string:", string(s))
+				}
+			}
 		}
 
 		s, _ := json.Marshal(PlayerEvent{

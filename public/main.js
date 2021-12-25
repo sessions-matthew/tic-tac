@@ -1,6 +1,6 @@
 const boardId = "board2";
 
-const host = "localhost:8080";
+const host = "localhost:3000";
 
 function createBoard(id, game, player) {
   var url = `ws://${host}/listen/${game}/${player}`;

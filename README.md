@@ -1,7 +1,9 @@
 # Tic Tac Toe in Go
-	This is a very basic implementation of Tic Tac Toe as a web application.	
-	![](images/screenshot0.png)
-	![](images/screenshot1.png)
+This is a very basic implementation of Tic Tac Toe as a web application.	
+
+![img0](images/screenshot0.png)
+
+![img1](images/screenshot1.png)
 	
 ## How to run
 1. Install Go

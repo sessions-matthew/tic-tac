@@ -4,8 +4,10 @@
 		<script src="https://code.jquery.com/jquery-3.6.0.slim.min.js"></script>
 	</head>
 	<body>
- 		<h3> username: {{ .username }} </h3>
- 		<h3> gameid: {{ .gameid }} </h3>
+		<div style="display:flex;">
+ 			<h3 style="margin-right: 20px;"> username: {{ .username }} </h3>
+ 			<h3> gameid: {{ .gameid }} </h3>
+		</div>
 		<div id="game"
 				 username={{ .username }}
 				 token={{ .player }}
@@ -17,6 +19,8 @@
 			<div id="board0"></div>
 			<div id="board1"></div>
 		</div>
+
+		<div id="status">Waiting for player...</div>
 	</body>
 	<style>
 		.winner {

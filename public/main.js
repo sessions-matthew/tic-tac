@@ -1,6 +1,6 @@
 const boardId = "board2";
 
-const host = "localhost:3000";
+const host = "localhost:8080";
 
 function createBoard(id, game, player) {
   var url = `ws://${host}/game/${game}/${player}`;
@@ -72,8 +72,10 @@ function createBoard(id, game, player) {
 			}
 		},
     evalWinner: (done, winner, player) => {
-      if(done)
+      if(done) {
         gameView.setWinner(winner, player);
+        gameView.setStatus(`${winner} has won`);
+      }
     },
 		getBoard: (id, gameId) => {
 			fetchBoard(gameId).then((res) => {
@@ -102,21 +104,25 @@ function createBoard(id, game, player) {
 					}
 					break;
 				case "move":
-					const { x, y, t } = json.content;
+					const { x, y, t } = json;
 					gameView.setTile(x, y, t);
+					break;
+				case "movenext":
+					const { username } = json;
+					gameView.setStatus(`It is ${username}'s turn`);
 					break;
 				case "game":
 					switch (json.event) {
 						case "over":
-							gameController.evalWinner(true, json.content, player);
+							gameController.evalWinner(true, json.winner, player);
 							break;
 					}
 					break;
 			}
-    }
+		}
 	};
-  
-  c.onmessage = gameController.processEvent;
+
+	c.onmessage = gameController.processEvent;
 
   c.onopen = function () {
     gameController.getBoard(id, game);

@@ -2,42 +2,63 @@ package game
 
 import (
 	"errors"
-	"main/src/stores"
+	"fmt"
 	"main/src/types"
-	"sort"
 )
 
-func NewGame () types.Game {
-	var nGame = types.Game {
+type Player struct {
+	Username string `json:"username"`
+	EventSource chan interface{} `json:"-"`
+	Nth int
+}
+
+type Game struct {
+	IsDone bool `json:"isDone" binding:"required"`
+	IsReady bool `json:"isReady" binding:"required"`
+	Winner string `json:"winner" binding:"required"`
+	Turn string `json:"turn" binding:"required"`
+	Players map[string] Player `json:"players" binding:"required"`
+	Board [][]string `json:"board" binding:"required"`
+}
+
+type GameStore map[string] Game
+
+func (store GameStore) GameExists(gameid string) bool {
+	_, ok := store[gameid]
+	return ok
+}
+
+func (store GameStore) NewGame (gameid string) {
+	var nGame = Game {
 		Board: [][]string {
 			{" ", " ", " "},
 				{" ", " ", " "},
 				{" ", " ", " "},
 			},
-		}
-	return nGame
+		Players: make(map[string] Player),
+	}
+	store[gameid] = nGame
 }
 
-func NewPlayer (gameid, player string) {
-	g := stores.GameStore[gameid]
+func (store GameStore) NewPlayer (gameid, player string) {
+	g := store[gameid]
+	fmt.Println("HERE", len(g.Players))
 	if g.Players == nil || len(g.Players) < 2 {
-		// search for player in array
-		p := sort.Search(len(g.Players), func(i int) bool {
-			return g.Players[i] == player
-		})
+		_, ok := g.Players[player]
 
-		if g.Players == nil || p == len(g.Players) {
-			// add new player
-			g.Players = append(g.Players, player)
+		if !ok {
+			g.Players[player] = Player { player, make(chan interface{}), len(g.Players)}
 		}
 
 		if len(g.Players) == 2 {
 			// set who goes first
 			g.IsReady = true
-			g.Turn = g.Players[0]
+			g.Turn = player
 		}
 	}
-	stores.GameStore[gameid] = g
+
+	fmt.Println("game>>", g)
+	store[gameid] = g
 }
 
 var (
@@ -47,8 +68,8 @@ var (
 	ErrGameDone = errors.New("game is over")
 )
 
-func checkWin (gameid string) bool {
-	board := stores.GameStore[gameid].Board
+func (store GameStore) checkWin (gameid string) bool {
+	board := store[gameid].Board
 	winner := false
 	for i := 0; i < 3; i++ {
 		if (board[i][0] != " " &&
@@ -66,8 +87,20 @@ func checkWin (gameid string) bool {
 	return winner
 }
 
-func DoMove (gameid string, x,y int, t string) error {
-	g := stores.GameStore[gameid]
+func (store GameStore) GetNextPlayer (gameid, username string) string {
+	g := store[gameid]
+	next := (g.Players[g.Turn].Nth + 1) % (len(g.Players))
+	fmt.Println(">> next", next)
+	for _, p := range g.Players {
+		if p.Nth == next {
+			return p.Username
+		}
+	}
+	return ""
+}
+
+func (store GameStore) DoMove (gameid string, x,y int, t string) error {
+	g := store[gameid]
 
 	if !g.IsReady {
 		return ErrGameNotReady
@@ -90,27 +123,94 @@ func DoMove (gameid string, x,y int, t string) error {
 	g.Board[y][x] = t;
 	
 	// cycle between players
-	if g.Turn == g.Players[0] {
-		g.Turn = g.Players[1]
-	} else {
-		g.Turn = g.Players[0]
-	}
-
-	g.IsDone = checkWin(gameid)
+	g.Turn = store.GetNextPlayer(gameid, g.Turn)
+	
+	g.IsDone = store.checkWin(gameid)
 	
 	if g.IsDone {
 		g.Winner = t
 	}
 
-	stores.GameStore[gameid] = g
+	store[gameid] = g
 	
 	return nil
 }
 
-func IsReady (gameid string) bool {
-	return stores.GameStore[gameid].IsReady
+func (store GameStore) IsReady (gameid string) bool {
+	return store[gameid].IsReady
 }
 
-func IsDone (gameid string) bool {
-	return stores.GameStore[gameid].IsDone
+func (store GameStore) IsDone (gameid string) bool {
+	return store[gameid].IsDone
+}
+
+func (store GameStore) HasGame (gameid string) bool {
+	_, ok := store[gameid]
+	return ok
+}
+
+func (store GameStore) GameProcess (eventsFromClient chan interface{}) {
+	for {
+		event := <- eventsFromClient
+		fmt.Println(">> event pre type: ", event)
+
+		switch event.(type) {
+		case types.GameConnect:
+			e := event.(types.GameConnect)
+			fmt.Println("player connected:", e)
+			break
+			
+		case types.GameDisconnect:
+			e := event.(types.GameDisconnect)
+			fmt.Println("player disconnected:", e)
+			break
+
+		case *types.GameRequest:
+			fmt.Println(">> requesting game instance")
+			e := event.(*types.GameRequest)
+
+			if !store.GameExists(e.GameId) {
+				fmt.Println(">> creating new game instance")
+				store.NewGame(e.GameId)
+			}
+
+			store.NewPlayer(e.GameId, e.Username)
+
+			e.Complete = true
+			break
+
+		case types.GameMove:
+			e := event.(types.GameMove)
+
+			err0  := store.DoMove(e.GameId, e.Move.X, e.Move.Y, e.Move.T)
+			if err0 == nil {
+				// push move event to clients
+				for _, player := range store[e.GameId].Players {
+					player.EventSource <- e.Move
+				}
+				if store.IsDone(e.GameId) {
+					// push game over event to clients
+					msg := types.GameOver {
+						Winner: store[e.GameId].Winner,
+						}
+					for _, player := range store[e.GameId].Players {
+						player.EventSource <- msg
+					}
+				} else {
+					// game is not done, send who is next
+					for _, player := range store[e.GameId].Players {
+						player.EventSource <- types.MoveNext{store[e.GameId].Turn}
+					}
+				}
+
+				// log moves
+				fmt.Println("gameid:", e.GameId)
+				fmt.Println("move:", e.Move)
+			} else {
+				fmt.Println(err0)
+			}
+			
+			break
+		}
+	}
 }

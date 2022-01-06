@@ -2,7 +2,6 @@ package routes
 
 import (
 	"fmt"
-	"time"
 
 	"main/src/types"
 	"net/http"
@@ -69,7 +68,7 @@ func GameSocket(c *gin.Context, events chan interface {}, gameEvents chan interf
 				incomingJSON <- jsonM
 			}
 		}
-	}()	
+  }()
 
 	var connected = true
 	for connected {
@@ -80,15 +79,9 @@ func GameSocket(c *gin.Context, events chan interface {}, gameEvents chan interf
 			switch j.(type) {
 			case types.Move:
 				m := j.(types.Move)
-				select {
-				case events <- types.GameMove {
+				events <- types.GameMove {
 					GameId: gameid,
 					Move: m,
-				} :
-					break
-				default:
-					fmt.Println("events are being spammed by:", player)
-					break
 				}
 				break
 			case error:
@@ -100,7 +93,6 @@ func GameSocket(c *gin.Context, events chan interface {}, gameEvents chan interf
 		// to the socket
 		case c := <- gameEvents:
 			fmt.Println("controller has sent", c)
-
 			switch c.(type) {
 			case types.Move:
 				m := c.(types.Move)
@@ -128,13 +120,18 @@ func GameSocket(c *gin.Context, events chan interface {}, gameEvents chan interf
 					"winner" : m.Winner,
 				})
 				break
+				
+			case types.GameConnect:
+				m := c.(types.GameConnect)
+				conn.WriteJSON(gin.H {
+					"type" : "player",
+					"event" : "connected",
+					"content" : m.Username,
+				})				
+				break
 			}
 			break
-		default:
-			break
 		}
-
-		time.Sleep(time.Second/4)
 	}
 	fmt.Println("disconnected")
 

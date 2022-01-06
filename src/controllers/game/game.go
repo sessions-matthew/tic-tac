@@ -158,6 +158,9 @@ func (store GameStore) GameProcess (eventsFromClient chan interface{}) {
 		case types.GameConnect:
 			e := event.(types.GameConnect)
 			fmt.Println("player connected:", e)
+			for _, p := range store[e.GameId].Players {
+				p.EventSource <- e
+			}
 			break
 			
 		case types.GameDisconnect:
@@ -176,7 +179,7 @@ func (store GameStore) GameProcess (eventsFromClient chan interface{}) {
 
 			store.NewPlayer(e.GameId, e.Username)
 
-			e.Complete = true
+			e.Complete <- true
 			break
 
 		case types.GameMove:

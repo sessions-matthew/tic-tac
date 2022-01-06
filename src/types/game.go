@@ -12,7 +12,7 @@ type GameOver struct {
 type GameRequest struct {
 	GameId string
 	Username string
-	Complete bool
+	Complete chan interface{}
 }
 
 type GameConnect struct {

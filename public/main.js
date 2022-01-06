@@ -10,7 +10,7 @@ function createBoard(id, game, player) {
 		buttons: [],
 		drawBoard: (controller, id, game) => {
 			const board = game.board;
-			controller.players = game.players;
+			controller.players = Object.entries(game.players);
 
 			board.forEach((row, y) => {
 				const r = document.createElement("div");
@@ -77,12 +77,17 @@ function createBoard(id, game, player) {
         gameView.setStatus(`${winner} has won`);
       }
     },
+    setTurn: (username) => {
+      gameView.setStatus(`It is ${username}'s turn`);      
+    },
 		getBoard: (id, gameId) => {
 			fetchBoard(gameId).then((res) => {
 				res.json().then((game) => {
           console.log(game);
 					gameView.drawBoard(gameController, id, game);
 					gameController.evalStatus();
+          if(game.turn)
+            gameController.setTurn(game.turn);
 					gameController.evalWinner(game.isDone, game.winner, player);
 				});
 			});
@@ -94,7 +99,8 @@ function createBoard(id, game, player) {
 			switch (json.type) {
 				case "player":
 					switch (json.event) {
-						case "connected":
+					case "connected":
+            console.log("connect event");
 							gameController.addPlayer(json.content);
 							gameController.evalStatus(gameController);
 							break;
@@ -109,7 +115,7 @@ function createBoard(id, game, player) {
 					break;
 				case "movenext":
 					const { username } = json;
-					gameView.setStatus(`It is ${username}'s turn`);
+          gameController.setTurn(username);
 					break;
 				case "game":
 					switch (json.event) {

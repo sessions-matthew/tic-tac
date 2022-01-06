@@ -3,8 +3,6 @@ package main
 import (
 	"main/src/controllers/game"
 	"main/src/routes"
-	"time"
-
 	"main/src/types"
 
 	"github.com/gin-contrib/cors"
@@ -44,13 +42,12 @@ func main() {
 		r := types.GameRequest {
 			GameId: gameid,
 			Username: player,
-			Complete: false,
+			Complete: make(chan interface{}),
 		}
-		eventsFromClient <- &r
 
-		for !r.Complete {
-			time.Sleep(time.Second/4)
-		}
+		// send event, wait for game thread
+		eventsFromClient <- &r
+		<- r.Complete
 
 		gameEvents := gameStore[gameid].Players[player].EventSource
 		routes.GameSocket(c, eventsFromClient, gameEvents)
